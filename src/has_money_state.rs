@@ -1,4 +1,7 @@
-use crate::{listening_state::ListeningState, state::State, vending_machine::VendingMachineError};
+use crate::{
+    listening_state::ListeningState, state::State, vending_machine::VendingMachineError, Item,
+    VendingMachine,
+};
 
 pub(crate) struct HasMoneyState {
     paid_item_id: u64,
@@ -17,7 +20,7 @@ impl HasMoneyState {
 impl State for HasMoneyState {
     fn request_item(
         self: Box<Self>,
-        _vm: &crate::vending_machine::VendingMachine,
+        _vm: &VendingMachine,
         _item_id: u64,
     ) -> Result<Box<dyn State>, VendingMachineError> {
         Err(VendingMachineError::RequestItem(
@@ -27,8 +30,8 @@ impl State for HasMoneyState {
 
     fn add_item(
         self: Box<Self>,
-        _vm: &mut crate::vending_machine::VendingMachine,
-        _item: crate::vending_machine::Item,
+        _vm: &mut VendingMachine,
+        _item: Item,
     ) -> Result<Box<dyn State>, VendingMachineError> {
         Err(VendingMachineError::AddItem("Item dispense in progress"))
     }
@@ -41,7 +44,7 @@ impl State for HasMoneyState {
 
     fn dispense_item(
         self: Box<Self>,
-        vm: &mut crate::vending_machine::VendingMachine,
+        vm: &mut VendingMachine,
     ) -> Result<Box<dyn State>, VendingMachineError> {
         println!(
             "Dispensing Item {} (id: {})",
@@ -55,6 +58,7 @@ impl State for HasMoneyState {
 
     fn cancel(self: Box<Self>) -> Result<Box<dyn State>, VendingMachineError> {
         println!("paying back money: {} units", self.money);
+        println!("cancel");
         Ok(Box::new(ListeningState))
     }
 

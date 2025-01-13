@@ -23,7 +23,7 @@ impl State for ListeningState {
     ) -> Result<Box<dyn State>, VendingMachineError> {
         if let Some(item) = vm.get_item(item_id) {
             if item.count == 0 {
-                println!("Item {} (id: {}) out of stock", item.name, item.name);
+                println!("Item {} (id: {}) out of stock", item.name, item.id);
                 return Ok(self);
             }
             println!("Item id:{} - name:{} requested", item_id, item.name);

@@ -23,6 +23,7 @@ fn read_string(text: &str) -> String {
 fn main() -> Result<(), VendingMachineError> {
     let mut vm = VendingMachine::new();
     loop {
+        println!("==============================================================");
         vm.show_commands();
         let code = read_number("Select code: ");
         match code {
@@ -37,6 +38,7 @@ fn main() -> Result<(), VendingMachineError> {
                 }
                 let count = read_number("write the quantity adding to the stock of that item: ");
                 vm.add_item(Item::new(id, name, price, count))?;
+                vm.show_items();
             }
             2 => {
                 vm.show_items();

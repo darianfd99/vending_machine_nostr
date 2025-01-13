@@ -40,7 +40,7 @@ impl State for ItemRequestedState {
             );
             return Ok(self);
         }
-        println!("Money intered is ok: {} units", money);
+        println!("Money entered is ok: {} units", money);
         Ok(Box::new(HasMoneyState::new(self.item.id, money)))
     }
 
