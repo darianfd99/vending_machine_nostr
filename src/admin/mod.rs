@@ -1,0 +1,97 @@
+mod builder;
+pub mod commands;
+mod helper;
+
+use commands::AdminCommand;
+use nostr_sdk::Client;
+use std::collections::HashSet;
+use tokio::sync::mpsc;
+
+/// Enum representing errors related to admin handling.
+#[derive(Debug)]
+pub enum AdminError {
+    /// An unknown command was received.
+    UnknownCommand(String),
+
+    /// The Nostr public key provided for an admin is invalid.
+    InvalidNostrPubKey(String),
+
+    /// Missing Nostr client when attempting to build the AdminHandler
+    MissingClient(String),
+
+    /// No admin public keys provided when attempting to build the AdminHandler
+    MissingAdminPubKeys(String),
+
+    /// No private key provided
+    MissingPrivateKey(String),
+}
+
+/// Represents the handler for processing and managing admin-related Nostr events and commands.
+///
+/// This struct holds the Nostr `Client` instance for interacting with the Nostr network and a set
+/// of authorized admin public keys (either as hex-encoded strings or Bech32 `npub1...` keys).
+///
+/// It is responsible for ensuring that only authorized admins can issue commands.
+pub struct AdminHandler {
+    /// The Nostr client used for network interactions
+    client: Client,
+
+    /// Set of authorized Nostr public keys for admins
+    admin_pubkeys: HashSet<nostr_sdk::PublicKey>,
+
+    /// nostr private key
+    key: nostr_sdk::SecretKey,
+
+    /// command producer
+    send_admin_commands: mpsc::Sender<AdminCommand>,
+}
+
+/// Builder for the `AdminHandler` struct, allowing flexible and validated construction.
+///
+/// The builder pattern allows incremental construction of an `AdminHandler` by first setting
+/// the `Client` and then adding admin public keys. Once the required fields are set, the handler can
+/// be constructed using the `.build()` method.
+impl AdminHandler {
+    /// Subscribes the handler to listen for commands from the admin.
+    pub async fn subscribe(&self) {
+        let filter = nostr_sdk::Filter::new()
+            .kinds(vec![nostr_sdk::Kind::EncryptedDirectMessage])
+            .authors(self.admin_pubkeys.clone());
+
+        let _ = self.client.subscribe(filter, None).await;
+    }
+
+    /// Handle the events sent by admins
+    pub async fn handle_events(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let admin_pubkeys = &self.admin_pubkeys;
+        let client = &self.client;
+
+        client
+            .handle_notifications(|notification| async move {
+                if let nostr_sdk::RelayPoolNotification::Event {
+                    event,
+                    subscription_id: _,
+                    ..
+                } = notification
+                {
+                    if admin_pubkeys.contains(&event.pubkey)
+                        && event.kind == nostr_sdk::Kind::EncryptedDirectMessage
+                    {
+                        // Attempt to decrypt using NIP-44
+                        if let Ok(decrypted_command) = nostr_sdk::nips::nip44::decrypt(
+                            &self.key,
+                            &event.pubkey,
+                            &event.content,
+                        ) {
+                            println!("🔐 Decrypted NIP-44 message: {}", decrypted_command);
+                        }
+                    }
+                }
+
+                Ok(false) // Keep listening
+            })
+            .await?;
+
+        Ok(())
+    }
+}

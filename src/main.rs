@@ -1,6 +1,8 @@
 use std::io;
 
-use vending_machines_nostr::{Item, VendingMachine, VendingMachineError};
+use vending_machines_nostr::{
+    admin::commands::AdminCommand, Item, VendingMachine, VendingMachineError,
+};
 
 fn read_number(text: &str) -> u64 {
     println!("{}", text);
@@ -20,8 +22,10 @@ fn read_string(text: &str) -> String {
     name.trim().to_string()
 }
 
-fn main() -> Result<(), VendingMachineError> {
-    let mut vm = VendingMachine::new();
+#[tokio::main]
+async fn main() -> Result<(), VendingMachineError> {
+    let (tx, rx) = tokio::sync::mpsc::channel::<AdminCommand>(10);
+    let mut vm = VendingMachine::new(rx);
     loop {
         println!("==============================================================");
         vm.show_commands();

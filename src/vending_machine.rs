@@ -1,6 +1,12 @@
 use std::{collections::HashMap, fmt::Display};
 
-use crate::{listening_state::ListeningState, state::State};
+use tokio::sync::mpsc;
+
+use crate::{
+    admin::{commands::AdminCommand, AdminHandler},
+    listening_state::ListeningState,
+    state::State,
+};
 
 #[derive(Debug)]
 pub enum VendingMachineError {
@@ -9,6 +15,7 @@ pub enum VendingMachineError {
     Dispense(&'static str),
     InsertMoney(&'static str),
     RequestItem(&'static str),
+    Unauthorized(&'static str),
 }
 
 impl Display for VendingMachineError {
@@ -19,6 +26,7 @@ impl Display for VendingMachineError {
             Self::InsertMoney(s) => write!(f, "VendingMachineError::InsertMoney: {}", s),
             Self::AddItem(s) => write!(f, "VendingMachineError::AddItem: {}", s),
             Self::RequestItem(s) => write!(f, "VendingMachineError::RequestItem: {}", s),
+            Self::Unauthorized(s) => write!(f, "VendingMachineError::Unauthorized: {}", s),
         }
     }
 }
@@ -40,6 +48,7 @@ impl Item {
             count,
         }
     }
+
     pub(crate) fn increment_count(&mut self, count: u64) {
         self.count += count;
     }
@@ -50,29 +59,32 @@ impl Item {
 }
 
 pub struct VendingMachine {
+    under_admin: bool,
     state: Option<Box<dyn State>>,
     items: HashMap<u64, Item>,
-}
-
-impl Default for VendingMachine {
-    fn default() -> Self {
-        Self::new()
-    }
+    admin_commands: mpsc::Receiver<AdminCommand>,
 }
 
 impl VendingMachine {
-    pub fn new() -> Self {
+    pub fn new(admin_commands: mpsc::Receiver<AdminCommand>) -> Self {
         Self {
+            under_admin: false,
             state: Some(Box::new(ListeningState)),
             items: HashMap::new(),
+            admin_commands,
         }
     }
 
     pub fn add_item(&mut self, item: Item) -> Result<(), VendingMachineError> {
+        if !self.under_admin {
+            return Err(VendingMachineError::Unauthorized("only admin can add item"));
+        }
+
         if let Some(state) = self.state.take() {
             self.state = Some(state.add_item(self, item)?);
             return Ok(());
         }
+
         Err(VendingMachineError::AddItem("invalid state"))
     }
 
