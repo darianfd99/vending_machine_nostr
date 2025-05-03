@@ -10,8 +10,8 @@ pub struct CommandTransport {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AddItemStruct {
-    id: u64,
-    count: u64,
+    pub id: u64,
+    pub count: u64,
 }
 
 /// AdminCommand represents a command that can be sent by the admin via Nostr.
