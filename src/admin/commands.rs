@@ -25,18 +25,3 @@ pub enum AdminCommand {
     /// add Item
     AddItem(AddItemStruct),
 }
-
-impl FromStr for AdminCommand {
-    type Err = AdminError;
-
-    /// Attempts to parse a command from a raw string.
-    ///
-    /// Returns an `AdminCommand`, matching known commands or failing.
-    fn from_str(input: &str) -> Result<Self, Self::Err> {
-        match input.trim().to_lowercase().as_str() {
-            "reboot" => Ok(AdminCommand::Reboot),
-            "status" => Ok(AdminCommand::Status),
-            other => Err(AdminError::UnknownCommand(other.to_string())),
-        }
-    }
-}

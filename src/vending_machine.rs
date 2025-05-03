@@ -2,11 +2,7 @@ use std::{collections::HashMap, fmt::Display};
 
 use tokio::sync::mpsc;
 
-use crate::{
-    admin::{commands::AdminCommand, AdminHandler},
-    listening_state::ListeningState,
-    state::State,
-};
+use crate::{admin::commands::AdminCommand, listening_state::ListeningState, state::State};
 
 #[derive(Debug)]
 pub enum VendingMachineError {
@@ -72,6 +68,12 @@ impl VendingMachine {
             state: Some(Box::new(ListeningState)),
             items: HashMap::new(),
             admin_commands,
+        }
+    }
+
+    pub async fn listen_to_admins(&mut self) {
+        while let Some(command) = self.admin_commands.recv().await {
+            println!("Received: {:?}", command);
         }
     }
 

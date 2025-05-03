@@ -1,4 +1,4 @@
-mod builder;
+pub mod builder;
 pub mod commands;
 mod helper;
 
@@ -84,6 +84,13 @@ impl AdminHandler {
                             &event.content,
                         ) {
                             println!("🔐 Decrypted NIP-44 message: {}", decrypted_command);
+                            if let Ok(command) =
+                                serde_json::from_str::<AdminCommand>(&decrypted_command)
+                            {
+                                let _ = self.send_admin_commands.send(command).await;
+                            } else {
+                                eprintln!("incorrect format for command");
+                            }
                         }
                     }
                 }
