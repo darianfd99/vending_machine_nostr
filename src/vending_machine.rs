@@ -36,10 +36,10 @@ impl Display for VendingMachineError {
 
 #[derive(Debug, Clone)]
 pub struct Item {
-    pub(crate) id: u64,
-    pub(crate) name: String,
-    pub(crate) price: u64,
-    pub(crate) count: u64,
+    pub id: u64,
+    pub name: String,
+    pub price: u64,
+    pub count: u64,
 }
 
 impl Item {
@@ -164,9 +164,8 @@ impl VendingMachine {
 
     // Process the next admin command if available
     pub async fn process_next_admin_command(&mut self) -> Result<bool, VendingMachineError> {
-        // Try to receive a command with a very short timeout
-        match tokio::time::timeout(Duration::from_millis(10), self.admin_commands.recv()).await {
-            Ok(Some(command)) => {
+        match self.admin_commands.recv().await {
+            Some(command) => {
                 // Process the admin command
                 match command {
                     AdminCommand::Reboot => {
@@ -208,13 +207,9 @@ impl VendingMachine {
                     }
                 }
             }
-            Ok(None) => {
+            None => {
                 // Channel closed
                 println!("Admin command channel closed");
-                Ok(false)
-            }
-            Err(_) => {
-                // Timeout, no command available
                 Ok(false)
             }
         }
@@ -223,10 +218,11 @@ impl VendingMachine {
     pub async fn run_machine(&mut self) -> Result<(), VendingMachineError> {
         loop {
             // Check for admin commands (non-blocking)
-            match self.process_next_admin_command().await {
-                Ok(true) => continue, // Command was processed, continue loop
-                Ok(false) => {}       // No admin command to process
-                Err(e) => eprintln!("Error processing admin command: {}", e),
+            match tokio::time::timeout(tokio::time::Duration::from_secs(10), self.process_next_admin_command()).await {
+                Ok(Ok(true)) => continue, // Command was processed, continue loop
+                Ok(Ok(false)) => {}       // No admin command to process
+                Ok(Err(e)) => eprintln!("Error processing admin command: {}", e),
+                Err(_) => { eprintln!("admin timeout")},
             }
 
             // Process user input (potentially blocking)
@@ -283,7 +279,7 @@ impl VendingMachine {
         Ok(true)
     }
 
-    fn with_admin_privileges<F, T>(&mut self, operation: F) -> T
+    pub fn with_admin_privileges<F, T>(&mut self, operation: F) -> T
     where
         F: FnOnce(&mut Self) -> T,
     {

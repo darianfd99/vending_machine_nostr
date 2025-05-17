@@ -2,9 +2,11 @@ pub mod builder;
 pub mod commands;
 mod helper;
 
+use builder::AdminHandlerBuilder;
 use commands::AdminCommand;
 use nostr_sdk::Client;
-use std::collections::HashSet;
+use serde_json::map::Keys;
+use std::{any::Any, collections::HashSet};
 use tokio::sync::mpsc;
 
 /// Enum representing errors related to admin handling.
@@ -91,14 +93,55 @@ impl AdminHandler {
                             } else {
                                 eprintln!("incorrect format for command");
                             }
+                        }else {
+                            eprintln!("error while decrypting");
                         }
                     }
                 }
-
                 Ok(false) // Keep listening
             })
             .await?;
 
         Ok(())
     }
+}
+
+pub async fn setup_admin_handler(
+    keys: nostr_sdk::Keys,
+    pubkeys: &[String],
+    sender: tokio::sync::mpsc::Sender<AdminCommand>,
+) -> Result<AdminHandler, AdminError> {
+    // Create client
+    // Generate new random keys
+    let nostr_client = nostr_sdk::ClientBuilder::new().signer(keys.clone()).build();
+
+    // Connect to relays
+    nostr_client
+        .add_relay("wss://relay.damus.io")
+        .await
+        .unwrap();
+
+    nostr_client
+        .add_read_relay("wss://relay.nostr.info")
+        .await
+        .unwrap();
+
+    nostr_client.connect().await;
+
+    // Build the admin handler
+    let mut admin_handler_builder = AdminHandlerBuilder::new()
+        .client(nostr_client)
+        .private_key(keys.secret_key().clone())
+        .sender_admin_commands(sender);
+        
+    for pubkey in pubkeys{
+       admin_handler_builder = admin_handler_builder .add_admin_pubkey(pubkey)?;
+    }
+
+    let admin_handler = admin_handler_builder.build()?;
+
+    // Subscribe to events
+    admin_handler.subscribe().await;
+
+    Ok(admin_handler)
 }
