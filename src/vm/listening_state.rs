@@ -1,21 +1,13 @@
-use crate::{
+use super::{
+    admin_state::AdminState,
     item_requested_state::ItemRequestedState,
     state::State,
-    vending_machine::{Item, VendingMachine, VendingMachineError},
+    vending_machine::{VendingMachine, VendingMachineError},
 };
 
 pub(crate) struct ListeningState;
 
 impl State for ListeningState {
-    fn add_item(
-        self: Box<Self>,
-        vm: &mut VendingMachine,
-        item: Item,
-    ) -> Result<Box<dyn State>, VendingMachineError> {
-        vm.increment_item_count(item);
-        Ok(self)
-    }
-
     fn request_item(
         self: Box<Self>,
         vm: &VendingMachine,
@@ -44,11 +36,15 @@ impl State for ListeningState {
         Err(VendingMachineError::InsertMoney("Request item first"))
     }
 
-    fn cancel(self: Box<Self>) -> Result<Box<dyn State>, VendingMachineError> {
-        Ok(self)
-    }
-
     fn show_commands(&self) {
         println!("Commands: (1) addItem (2) requestItem");
+    }
+
+    fn admin(
+        self: Box<Self>,
+        vm: &mut VendingMachine,
+    ) -> Result<Box<dyn State>, VendingMachineError> {
+        vm.under_admin = true;
+        Ok(Box::new(AdminState::new()))
     }
 }

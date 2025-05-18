@@ -1,13 +1,9 @@
-use std::{collections::HashMap, fmt::Display, time::Duration};
+use std::{collections::HashMap, fmt::Display, net::Shutdown};
 
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, time::Instant};
 
-use crate::{
-    admin::{commands::AdminCommand, AdminError},
-    helper,
-    listening_state::ListeningState,
-    state::State,
-};
+use super::{helper, listening_state::ListeningState, state::State};
+use crate::admin::{commands::AdminCommand, AdminError};
 
 #[derive(Debug)]
 pub enum VendingMachineError {
@@ -18,6 +14,7 @@ pub enum VendingMachineError {
     RequestItem(&'static str),
     Unauthorized(&'static str),
     AdminError(AdminError),
+    ItemDoesNotExist(u64),
 }
 
 impl Display for VendingMachineError {
@@ -30,6 +27,9 @@ impl Display for VendingMachineError {
             Self::RequestItem(s) => write!(f, "VendingMachineError::RequestItem: {}", s),
             Self::Unauthorized(s) => write!(f, "VendingMachineError::Unauthorized: {}", s),
             Self::AdminError(s) => write!(f, "VendingMachineError::AdminError: {:?}", s),
+            Self::ItemDoesNotExist(s) => {
+                write!(f, "VendingMachineError::ItemDoesNotExist: {:?}", s)
+            }
         }
     }
 }
@@ -62,29 +62,37 @@ impl Item {
 }
 
 pub struct VendingMachine {
-    under_admin: bool,
+    pub(crate) under_admin: bool,
     state: Option<Box<dyn State>>,
     items: HashMap<u64, Item>,
     admin_commands: mpsc::Receiver<AdminCommand>,
+    shutdown: mpsc::Receiver<bool>,
+    last_activity: Option<Instant>,
 }
 
 impl VendingMachine {
-    pub fn new(admin_commands: mpsc::Receiver<AdminCommand>) -> Self {
+    pub fn new(
+        admin_commands: mpsc::Receiver<AdminCommand>,
+        shutdown: mpsc::Receiver<bool>,
+    ) -> Self {
         Self {
             under_admin: false,
             state: Some(Box::new(ListeningState)),
             items: HashMap::new(),
             admin_commands,
+            last_activity: None,
+            shutdown,
         }
     }
 
-    pub async fn listen_to_admins(&mut self) {
-        while let Some(command) = self.admin_commands.recv().await {
-            println!("Received: {:?}", command);
+    fn update_last_activity(&mut self) {
+        if self.under_admin {
+            self.last_activity = Some(Instant::now());
         }
     }
 
     pub fn add_item(&mut self, item: Item) -> Result<(), VendingMachineError> {
+        self.update_last_activity();
         if !self.under_admin {
             return Err(VendingMachineError::Unauthorized("only admin can add item"));
         }
@@ -97,7 +105,36 @@ impl VendingMachine {
         Err(VendingMachineError::AddItem("invalid state"))
     }
 
+    pub fn admin(&mut self) -> Result<(), VendingMachineError> {
+        self.update_last_activity();
+        if let Some(state) = self.state.take() {
+            self.state = Some(state.admin(self)?);
+        }
+        Ok(())
+    }
+
+    pub fn change_price(
+        &mut self,
+        item_id: u64,
+        new_price: u64,
+    ) -> Result<(), VendingMachineError> {
+        self.update_last_activity();
+        if let Some(state) = self.state.take() {
+            self.state = Some(state.change_price(self, item_id, new_price)?);
+        }
+        Ok(())
+    }
+
+    pub fn remove_item(&mut self, item_id: u64) -> Result<(), VendingMachineError> {
+        self.update_last_activity();
+        if let Some(state) = self.state.take() {
+            self.state = Some(state.remove_item(self, item_id)?);
+        }
+        Ok(())
+    }
+
     pub fn request_item(&mut self, item_id: u64) -> Result<(), VendingMachineError> {
+        self.update_last_activity();
         if let Some(state) = self.state.take() {
             self.state = Some(state.request_item(self, item_id)?);
             return Ok(());
@@ -106,6 +143,7 @@ impl VendingMachine {
     }
 
     pub fn insert_money(&mut self, money: u64) -> Result<(), VendingMachineError> {
+        self.update_last_activity();
         if let Some(state) = self.state.take() {
             self.state = Some(state.insert_money(money)?);
             return Ok(());
@@ -114,6 +152,7 @@ impl VendingMachine {
     }
 
     pub fn dispense_item(&mut self) -> Result<(), VendingMachineError> {
+        self.update_last_activity();
         if let Some(state) = self.state.take() {
             self.state = Some(state.dispense_item(self)?);
             return Ok(());
@@ -122,8 +161,9 @@ impl VendingMachine {
     }
 
     pub fn cancel(&mut self) -> Result<(), VendingMachineError> {
+        self.update_last_activity();
         if let Some(state) = self.state.take() {
-            self.state = Some(state.cancel()?);
+            self.state = Some(state.cancel(self)?);
             return Ok(());
         }
         Err(VendingMachineError::AddItem("invalid state"))
@@ -145,11 +185,46 @@ impl VendingMachine {
         println!("----------------------------------------------------------");
     }
 
-    pub(crate) fn increment_item_count(&mut self, add_items: Item) {
+    pub(crate) fn increment_item_count(
+        &mut self,
+        add_items: Item,
+    ) -> Result<(), VendingMachineError> {
+        if !self.under_admin {
+            return Err(VendingMachineError::Unauthorized("only admin can add item"));
+        }
         self.items
             .entry(add_items.id)
             .or_insert(Item::new(add_items.id, add_items.name, add_items.price, 0))
-            .increment_count(add_items.count)
+            .increment_count(add_items.count);
+        Ok(())
+    }
+
+    pub(crate) fn remove_item_from_menu(
+        &mut self,
+        item_id: u64,
+    ) -> Result<(), VendingMachineError> {
+        if !self.under_admin {
+            return Err(VendingMachineError::Unauthorized("only admin can add item"));
+        }
+        self.items
+            .remove(&item_id)
+            .map(|_| ())
+            .ok_or(VendingMachineError::ItemDoesNotExist(item_id))
+    }
+
+    pub(crate) fn change_item_price(
+        &mut self,
+        item_id: u64,
+        price: u64,
+    ) -> Result<(), VendingMachineError> {
+        if !self.under_admin {
+            return Err(VendingMachineError::Unauthorized("only admin can add item"));
+        }
+        if let Some(item) = self.items.get_mut(&item_id) {
+            item.price = price;
+            return Ok(());
+        }
+        Err(VendingMachineError::ItemDoesNotExist(item_id))
     }
 
     pub fn get_item(&self, item_id: u64) -> Option<&Item> {
@@ -163,71 +238,78 @@ impl VendingMachine {
     }
 
     // Process the next admin command if available
-    pub async fn process_next_admin_command(&mut self) -> Result<bool, VendingMachineError> {
-        match self.admin_commands.recv().await {
-            Some(command) => {
-                // Process the admin command
-                match command {
-                    AdminCommand::Reboot => {
-                        println!("Admin requested reboot");
-                        // Implement reboot logic
-                        Ok(true)
-                    }
-                    AdminCommand::Status => {
-                        println!("Admin requested status");
-                        self.show_items();
-                        Ok(true)
-                    }
-                    AdminCommand::AddItem(item_data) => {
-                        println!(
-                            "Admin adding item: id={}, count={}",
-                            item_data.id, item_data.count
-                        );
-
-                        // Check if item exists before attempting to add it
-                        let item_option = self.get_item(item_data.id).map(|existing| {
-                            Item::new(
-                                item_data.id,
-                                existing.name.clone(),
-                                existing.price,
-                                item_data.count,
-                            )
-                        });
-
-                        if let Some(item) = item_option {
-                            // Use the with_admin_privileges function
-                            self.with_admin_privileges(|vm| vm.add_item(item))
-                                .map(|_| true)
-                        } else {
-                            // Item doesn't exist yet
-                            Err(VendingMachineError::AddItem(
-                                "Cannot add new item; only update existing",
-                            ))
-                        }
-                    }
-                }
+    pub async fn process_next_admin_command(
+        &mut self,
+        command: &AdminCommand,
+    ) -> Result<bool, VendingMachineError> {
+        // Process the admin command
+        match command {
+            AdminCommand::ChangePrice(change_price_req) => {
+                self.change_price(change_price_req.id, change_price_req.price)?;
+                Ok(true)
             }
-            None => {
-                // Channel closed
-                println!("Admin command channel closed");
-                Ok(false)
+            AdminCommand::RemoveItem(item_id) => {
+                self.remove_item(item_id.to_owned())?;
+                Ok(true)
+            }
+            AdminCommand::RequestAdminState => {
+                self.admin()?;
+                Ok(true)
+            }
+            AdminCommand::Reboot => {
+                println!("Admin requested reboot");
+                // Implement reboot logic
+                Ok(true)
+            }
+            AdminCommand::Status => {
+                println!("Admin requested status");
+                self.show_items();
+                Ok(true)
+            }
+            AdminCommand::AddItem(item_data) => {
+                println!(
+                    "Admin adding item: id={}, count={}",
+                    item_data.id, item_data.count
+                );
+                self.add_item(Item {
+                    id: item_data.id,
+                    name: item_data.name.clone(),
+                    price: item_data.price,
+                    count: item_data.count,
+                })?;
+                Ok(true)
             }
         }
     }
 
     pub async fn run_machine(&mut self) -> Result<(), VendingMachineError> {
         loop {
-            // Check for admin commands (non-blocking)
-            match tokio::time::timeout(tokio::time::Duration::from_secs(10), self.process_next_admin_command()).await {
-                Ok(Ok(true)) => continue, // Command was processed, continue loop
-                Ok(Ok(false)) => {}       // No admin command to process
-                Ok(Err(e)) => eprintln!("Error processing admin command: {}", e),
-                Err(_) => { eprintln!("admin timeout")},
-            }
-
-            // Process user input (potentially blocking)
-            if self.process_user_input().await? {
-                break; // User requested exit
+            tokio::select! {
+                Some(shutdown) = self.shutdown.recv() => {
+                    if shutdown {
+                        println!("Shutdown signal received. Exiting...");
+                        break;
+                    }
+                }
+                Some(command) = self.admin_commands.recv() => {
+                    if let Err(e) = self.process_next_admin_command(&command).await {
+                        eprintln!("Error processing admin command: {}", e);
+                    }
+                }
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
+                    if let Some(last_activity) = self.last_activity {
+                        if last_activity.elapsed().as_secs() > 60 {
+                            println!("No activity for 60 seconds. Cancelling...");
+                            self.cancel()?;
+                            break;
+                        }
+                    }
+                }
+                else => {
+                    if let Err(e) = self.process_user_input().await {
+                        eprintln!("Error processing user input: {}", e);
+                    }
+                }
             }
         }
 
@@ -277,16 +359,5 @@ impl VendingMachine {
         }
 
         Ok(true)
-    }
-
-    pub fn with_admin_privileges<F, T>(&mut self, operation: F) -> T
-    where
-        F: FnOnce(&mut Self) -> T,
-    {
-        let previous = self.under_admin;
-        self.under_admin = true;
-        let result = operation(self);
-        self.under_admin = previous;
-        result
     }
 }

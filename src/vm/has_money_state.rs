@@ -1,6 +1,7 @@
-use crate::{
-    listening_state::ListeningState, state::State, vending_machine::VendingMachineError, Item,
-    VendingMachine,
+use super::{
+    listening_state::ListeningState,
+    state::State,
+    vending_machine::{Item, VendingMachine, VendingMachineError},
 };
 
 pub(crate) struct HasMoneyState {
@@ -56,7 +57,10 @@ impl State for HasMoneyState {
         Ok(Box::new(ListeningState))
     }
 
-    fn cancel(self: Box<Self>) -> Result<Box<dyn State>, VendingMachineError> {
+    fn cancel(
+        self: Box<Self>,
+        _vm: &mut VendingMachine,
+    ) -> Result<Box<dyn State>, VendingMachineError> {
         println!("paying back money: {} units", self.money);
         println!("cancel");
         Ok(Box::new(ListeningState))

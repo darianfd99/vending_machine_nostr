@@ -93,7 +93,7 @@ impl AdminHandler {
                             } else {
                                 eprintln!("incorrect format for command");
                             }
-                        }else {
+                        } else {
                             eprintln!("error while decrypting");
                         }
                     }
@@ -133,9 +133,9 @@ pub async fn setup_admin_handler(
         .client(nostr_client)
         .private_key(keys.secret_key().clone())
         .sender_admin_commands(sender);
-        
-    for pubkey in pubkeys{
-       admin_handler_builder = admin_handler_builder .add_admin_pubkey(pubkey)?;
+
+    for pubkey in pubkeys {
+        admin_handler_builder = admin_handler_builder.add_admin_pubkey(pubkey)?;
     }
 
     let admin_handler = admin_handler_builder.build()?;

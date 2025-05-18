@@ -1,6 +1,5 @@
-use crate::{
+use super::{
     has_money_state::HasMoneyState,
-    listening_state::ListeningState,
     state::State,
     vending_machine::{Item, VendingMachine, VendingMachineError},
 };
@@ -49,11 +48,6 @@ impl State for ItemRequestedState {
         _vm: &mut VendingMachine,
     ) -> Result<Box<dyn State>, VendingMachineError> {
         Err(VendingMachineError::Dispense("Insert money first"))
-    }
-
-    fn cancel(self: Box<Self>) -> Result<Box<dyn State>, VendingMachineError> {
-        println!("cancel");
-        Ok(Box::new(ListeningState))
     }
 
     fn show_commands(&self) {
