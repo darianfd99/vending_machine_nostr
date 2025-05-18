@@ -5,8 +5,7 @@ mod helper;
 use builder::AdminHandlerBuilder;
 use commands::AdminCommand;
 use nostr_sdk::Client;
-use serde_json::map::Keys;
-use std::{any::Any, collections::HashSet};
+use std::collections::HashSet;
 use tokio::sync::mpsc;
 
 /// Enum representing errors related to admin handling.

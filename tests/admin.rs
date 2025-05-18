@@ -76,7 +76,7 @@ async fn test_add_item_command_via_nostr() {
         nostr_sdk::nips::nip44::Version::V2,
     )
     .unwrap();
-    
+
     // Create and send event
     let event = EventBuilder::new(nostr_sdk::Kind::EncryptedDirectMessage, encrypted)
         .build(admin_keys.public_key())
@@ -153,7 +153,8 @@ async fn test_change_price_command_via_nostr() {
     // Create vending machine and add initial item
     let mut vm = VendingMachine::new(rx, shutdown_rx);
     vm.admin().unwrap();
-    vm.add_item(Item::new(22, "Test Product".to_string(), 100, 5)).unwrap();
+    vm.add_item(Item::new(22, "Test Product".to_string(), 100, 5))
+        .unwrap();
     assert!(vm.get_item(22).is_some());
     assert_eq!(vm.get_item(22).unwrap().price, 100);
 
@@ -175,10 +176,7 @@ async fn test_change_price_command_via_nostr() {
     });
 
     // Create ChangePriceRequest command
-    let change_price_req = ChangePriceRequest {
-        id: 22,
-        price: 150,
-    };
+    let change_price_req = ChangePriceRequest { id: 22, price: 150 };
     let command = AdminCommand::ChangePrice(change_price_req);
     let command_json = serde_json::to_string(&command).unwrap();
 
@@ -237,7 +235,8 @@ async fn test_remove_item_command_via_nostr() {
     // Create vending machine and add initial item
     let mut vm = VendingMachine::new(rx, shutdown_rx);
     vm.admin().unwrap();
-    vm.add_item(Item::new(12, "Test Product".to_string(),34, 4)).unwrap();
+    vm.add_item(Item::new(12, "Test Product".to_string(), 34, 4))
+        .unwrap();
     assert!(vm.get_item(12).is_some());
 
     // Spawn machine task

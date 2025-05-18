@@ -23,46 +23,11 @@ pub fn parse_pubkey(input: &str) -> Option<nostr_sdk::PublicKey> {
     }
 }
 
-/// Validates whether the key is a valid 64-character hex-encoded public key.
-///
-/// # Arguments
-/// * `key` - The public key string to validate.
-///
-/// # Returns
-/// - `true` if the key is a valid 64-character hex string, otherwise `false`.
-///
-/// # Example
-/// ```
-/// //let valid = helper::is_valid_hex_pubkey("8c2fa6ac7b9f09d8d5ad52be317bf1f8eab428f3ffb3c15e0420be9e97f0d387");
-/// //assert!(valid);
-/// ```
-fn is_valid_hex_pubkey(key: &str) -> bool {
-    key.len() == 64 && key.chars().all(|c| c.is_ascii_hexdigit())
-}
-
 #[cfg(test)]
 mod test {
     use nostr_sdk::ToBech32;
 
     use super::*;
-    #[test]
-    fn test_is_valid_hex_pubkey_valid() {
-        let key = "8c2fa6ac7b9f09d8d5ad52be317bf1f8eab428f3ffb3c15e0420be9e97f0d387";
-        assert!(is_valid_hex_pubkey(key));
-    }
-
-    #[test]
-    fn test_is_valid_hex_pubkey_invalid_length() {
-        let key = "abcd1234";
-        assert!(!is_valid_hex_pubkey(key));
-    }
-
-    #[test]
-    fn test_is_valid_hex_pubkey_non_hex() {
-        let key = "g8c2fa6ac7b9f09d8d5ad52be317bf1f8eab42xxf3ffb3c15e0420be9e97f0d387";
-        assert!(!is_valid_hex_pubkey(key));
-    }
-
     #[test]
     fn test_parse_pubkey_bech32_valid() {
         let bech32 = "npub14cpg528xz69k3j25sq5ktm5ckyf798cyufyhj8vh8cqm6kp0s7js9x54c9"; // Dummy, valid format

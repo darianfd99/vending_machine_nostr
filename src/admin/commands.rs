@@ -1,9 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-pub struct CommandTransport {
-    id: u64,
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AddItemRequest {
     pub id: u64,

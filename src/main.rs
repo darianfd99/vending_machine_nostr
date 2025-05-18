@@ -1,9 +1,6 @@
 use nostr_sdk::Keys;
 use vending_machines_nostr::{
-    admin::{
-        builder::AdminHandlerBuilder, commands::AdminCommand, setup_admin_handler, AdminError,
-        AdminHandler,
-    },
+    admin::{commands::AdminCommand, setup_admin_handler},
     vending_machine::{VendingMachine, VendingMachineError},
 };
 
