@@ -25,6 +25,15 @@ pub enum AdminError {
 
     /// No private key provided
     MissingPrivateKey(String),
+
+    /// Shutdown error
+    ShutdownError(String),
+
+    /// Handle notifications error
+    HandleNotifications(String),
+
+    /// Relay error
+    Relay(String),
 }
 
 /// Represents the handler for processing and managing admin-related Nostr events and commands.
@@ -62,7 +71,6 @@ impl AdminHandler {
         let _ = self.client.subscribe(filter, None).await;
     }
 
-    /// Handle the events sent by admins
     pub async fn handle_events(&self) -> Result<(), Box<dyn std::error::Error>> {
         let admin_pubkeys = &self.admin_pubkeys;
         let client = &self.client;
@@ -88,7 +96,10 @@ impl AdminHandler {
                             if let Ok(command) =
                                 serde_json::from_str::<AdminCommand>(&decrypted_command)
                             {
-                                let _ = self.send_admin_commands.send(command).await;
+                                let _ = self.send_admin_commands.send(command.clone()).await;
+                                if let AdminCommand::Shutdown = command {
+                                    return Ok(true);
+                                }
                             } else {
                                 eprintln!("incorrect format for command");
                             }
@@ -101,6 +112,9 @@ impl AdminHandler {
             })
             .await?;
 
+        client.disconnect().await;
+        client.shutdown().await;
+
         Ok(())
     }
 }
@@ -108,6 +122,7 @@ impl AdminHandler {
 pub async fn setup_admin_handler(
     keys: nostr_sdk::Keys,
     pubkeys: &[String],
+    admin_relays: &[&str],
     sender: tokio::sync::mpsc::Sender<AdminCommand>,
 ) -> Result<AdminHandler, AdminError> {
     // Create client
@@ -115,16 +130,12 @@ pub async fn setup_admin_handler(
     let nostr_client = nostr_sdk::ClientBuilder::new().signer(keys.clone()).build();
 
     // Connect to relays
-    nostr_client
-        .add_relay("wss://relay.damus.io")
-        .await
-        .unwrap();
-
-    nostr_client
-        .add_read_relay("wss://relay.nostr.info")
-        .await
-        .unwrap();
-
+    for &relay in admin_relays {
+        nostr_client
+            .add_relay(relay)
+            .await
+            .map_err(|_| AdminError::Relay(format!("Failed to add relay: {}", relay)))?;
+    }
     nostr_client.connect().await;
 
     // Build the admin handler

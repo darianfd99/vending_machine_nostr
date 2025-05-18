@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  relay:
+    image: scsibug/nostr-rs-relay:latest
+    ports:
+      - "7777:8080"
+    environment:
+      - RELAY_NETWORK=testnet
+      - RELAY_PORT=8080
+    restart: unless-stopped
+
+  db:
+    image: postgres:14-alpine
+    environment:
+      - POSTGRES_USER=nostr
+      - POSTGRES_PASSWORD=nostr
+      - POSTGRES_DB=nostr
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

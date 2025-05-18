@@ -85,6 +85,10 @@ impl VendingMachine {
         }
     }
 
+    pub fn is_under_admin(&self) -> bool {
+        self.under_admin
+    }
+
     fn update_last_activity(&mut self) {
         if self.under_admin {
             self.last_activity = Some(Instant::now());
@@ -277,6 +281,15 @@ impl VendingMachine {
                     price: item_data.price,
                     count: item_data.count,
                 })?;
+                Ok(true)
+            }
+            AdminCommand::Shutdown => {
+                println!("Admin requested shutdown");
+                Ok(true)
+            }
+            AdminCommand::End => {
+                println!("Admin finished working");
+                self.cancel()?;
                 Ok(true)
             }
         }

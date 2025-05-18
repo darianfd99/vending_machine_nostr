@@ -18,6 +18,12 @@ pub struct AdminHandlerBuilder {
     admin_commands_sender: Option<mpsc::Sender<AdminCommand>>,
 }
 
+impl Default for AdminHandlerBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AdminHandlerBuilder {
     /// Creates a new empty `AdminHandlerBuilder` instance.
     ///

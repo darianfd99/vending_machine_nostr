@@ -30,4 +30,8 @@ pub enum AdminCommand {
     RemoveItem(u64),
     /// Change price
     ChangePrice(ChangePriceRequest),
+    /// Shutdown
+    Shutdown,
+    /// End
+    End,
 }

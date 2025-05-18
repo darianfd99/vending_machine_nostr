@@ -1,24 +1,51 @@
 use std::time::Duration;
 
+use helper::{setup_local_relay_client, LOCAL_RELAY_URL};
 use tokio::sync::mpsc;
 use vending_machines_nostr::admin::commands::{AddItemRequest, AdminCommand, ChangePriceRequest};
-use vending_machines_nostr::admin::setup_admin_handler;
+use vending_machines_nostr::admin::{setup_admin_handler, AdminHandler};
 use vending_machines_nostr::vm::vending_machine::VendingMachine;
 
-use nostr_sdk::{EventBuilder, Keys};
+use nostr_sdk::{Client, EventBuilder, Keys};
 use vending_machines_nostr::vending_machine::Item;
+mod helper;
 
-#[tokio::test]
-async fn test_add_item_command_via_nostr() {
+async fn shutdown_admin(client: &Client, admin_keys: Keys, keys: Keys) {
+    let command = AdminCommand::Shutdown;
+    let command_json = serde_json::to_string(&command).unwrap();
+
+    // Encrypt command
+    let encrypted = nostr_sdk::nips::nip44::encrypt(
+        admin_keys.secret_key(),
+        &keys.public_key(),
+        command_json,
+        nostr_sdk::nips::nip44::Version::V2,
+    )
+    .unwrap();
+
+    // Create and send event
+    let event = EventBuilder::new(nostr_sdk::Kind::EncryptedDirectMessage, encrypted)
+        .build(admin_keys.public_key())
+        .sign(&admin_keys)
+        .await
+        .unwrap();
+
+    println!("Sending AddItem command...");
+    client.send_event(&event).await.unwrap();
+}
+
+async fn setup() -> (
+    Keys,
+    Keys,
+    Client,
+    VendingMachine,
+    AdminHandler,
+    mpsc::Sender<bool>,
+) {
     // Set up Nostr client
     let keys = Keys::generate();
     let admin_keys = Keys::generate();
-    let client = nostr_sdk::ClientBuilder::new()
-        .signer(admin_keys.clone())
-        .build();
-    let relay_url = "wss://relay.damus.io"; // Local test relay
-    client.add_relay(relay_url).await.unwrap();
-    client.connect().await;
+    let client = setup_local_relay_client(admin_keys.clone()).await;
 
     // Set up vending machine with test items
     let (tx, rx) = mpsc::channel(10);
@@ -27,6 +54,7 @@ async fn test_add_item_command_via_nostr() {
     let admin_handler = setup_admin_handler(
         keys.clone(),
         &[admin_keys.public_key().to_string()],
+        &[LOCAL_RELAY_URL],
         tx.clone(),
     )
     .await
@@ -35,6 +63,41 @@ async fn test_add_item_command_via_nostr() {
     // Create vending machine
     let mut vm = VendingMachine::new(rx, shutdown_rx);
     vm.admin().unwrap();
+
+    (keys, admin_keys, client, vm, admin_handler, shutdown_tx)
+}
+
+async fn send_admin_command(
+    client: &Client,
+    admin_keys: &Keys,
+    keys: &Keys,
+    command: AdminCommand,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let command_json = serde_json::to_string(&command)?;
+
+    // Encrypt command
+    let encrypted = nostr_sdk::nips::nip44::encrypt(
+        admin_keys.secret_key(),
+        &keys.public_key(),
+        command_json,
+        nostr_sdk::nips::nip44::Version::V2,
+    )?;
+
+    // Create and send event
+    let event = EventBuilder::new(nostr_sdk::Kind::EncryptedDirectMessage, encrypted)
+        .build(admin_keys.public_key())
+        .sign(admin_keys)
+        .await?;
+
+    println!("Sending command: {:?}", command);
+    client.send_event(&event).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_add_item_command_via_nostr() {
+    let (keys, admin_keys, client, mut vm, admin_handler, shutdown_tx) = setup().await;
     let machine = tokio::spawn(async move {
         if let Err(e) = vm.run_machine().await {
             eprintln!("Vending machine error: {}", e);
@@ -52,7 +115,7 @@ async fn test_add_item_command_via_nostr() {
     });
 
     // Spawn admin listener task
-    let _ = tokio::spawn(async move {
+    let admin_handler = tokio::spawn(async move {
         if let Err(e) = admin_handler.handle_events().await {
             eprintln!("Admin handler error: {}", e);
         }
@@ -66,26 +129,10 @@ async fn test_add_item_command_via_nostr() {
         count: 5,
     };
     let command = AdminCommand::AddItem(add_item_data);
-    let command_json = serde_json::to_string(&command).unwrap();
-
-    // Encrypt command
-    let encrypted = nostr_sdk::nips::nip44::encrypt(
-        &admin_keys.secret_key(),
-        &keys.public_key(),
-        command_json,
-        nostr_sdk::nips::nip44::Version::V2,
-    )
-    .unwrap();
-
-    // Create and send event
-    let event = EventBuilder::new(nostr_sdk::Kind::EncryptedDirectMessage, encrypted)
-        .build(admin_keys.public_key())
-        .sign(&admin_keys)
+    println!("Sending AddItem command...");
+    send_admin_command(&client, &admin_keys, &keys, command)
         .await
         .unwrap();
-
-    println!("Sending AddItem command...");
-    client.send_event(&event).await.unwrap();
 
     // Create AddItem command
     let add_item_data = AddItemRequest {
@@ -95,64 +142,26 @@ async fn test_add_item_command_via_nostr() {
         count: 32,
     };
     let command = AdminCommand::AddItem(add_item_data);
-    let command_json = serde_json::to_string(&command).unwrap();
-
-    // Encrypt command
-    let encrypted = nostr_sdk::nips::nip44::encrypt(
-        &admin_keys.secret_key(),
-        &keys.public_key(),
-        command_json,
-        nostr_sdk::nips::nip44::Version::V2,
-    )
-    .unwrap();
-
-    // Create and send event
-    let event = EventBuilder::new(nostr_sdk::Kind::EncryptedDirectMessage, encrypted)
-        .build(admin_keys.public_key())
-        .sign(&admin_keys)
+    println!("Sending AddItem command...");
+    send_admin_command(&client, &admin_keys, &keys, command)
         .await
         .unwrap();
 
-    println!("Sending AddItem command...");
-    client.send_event(&event).await.unwrap();
-
     // Wait a bit for command processing
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     // Clean up
     shutdown_tx.send(true).await.unwrap();
-    machine.await.unwrap();
+    shutdown_admin(&client, admin_keys, keys).await;
     client.disconnect().await;
+
+    tokio::try_join!(machine, admin_handler).unwrap();
 }
 
 #[tokio::test]
 async fn test_change_price_command_via_nostr() {
-    // Set up Nostr client
-    let keys = Keys::generate();
-    let admin_keys = Keys::generate();
-    let client = nostr_sdk::ClientBuilder::new()
-        .signer(admin_keys.clone())
-        .build();
-    let relay_url = "wss://relay.damus.io";
-    client.add_relay(relay_url).await.unwrap();
-    client.connect().await;
+    let (keys, admin_keys, client, mut vm, admin_handler, shutdown_tx) = setup().await;
 
-    // Set up channels
-    let (tx, rx) = mpsc::channel(10);
-    let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel::<bool>(1);
-
-    // Create admin handler
-    let admin_handler = setup_admin_handler(
-        keys.clone(),
-        &[admin_keys.public_key().to_string()],
-        tx.clone(),
-    )
-    .await
-    .unwrap();
-
-    // Create vending machine and add initial item
-    let mut vm = VendingMachine::new(rx, shutdown_rx);
-    vm.admin().unwrap();
     vm.add_item(Item::new(22, "Test Product".to_string(), 100, 5))
         .unwrap();
     assert!(vm.get_item(22).is_some());
@@ -169,7 +178,7 @@ async fn test_change_price_command_via_nostr() {
     });
 
     // Spawn admin handler
-    let _ = tokio::spawn(async move {
+    let admin_handler = tokio::spawn(async move {
         if let Err(e) = admin_handler.handle_events().await {
             eprintln!("Admin handler error: {}", e);
         }
@@ -178,63 +187,26 @@ async fn test_change_price_command_via_nostr() {
     // Create ChangePriceRequest command
     let change_price_req = ChangePriceRequest { id: 22, price: 150 };
     let command = AdminCommand::ChangePrice(change_price_req);
-    let command_json = serde_json::to_string(&command).unwrap();
-
-    // Send command via Nostr
-    let encrypted = nostr_sdk::nips::nip44::encrypt(
-        &admin_keys.secret_key(),
-        &keys.public_key(),
-        command_json,
-        nostr_sdk::nips::nip44::Version::V2,
-    )
-    .unwrap();
-
-    let event = EventBuilder::new(nostr_sdk::Kind::EncryptedDirectMessage, encrypted)
-        .build(admin_keys.public_key())
-        .sign(&admin_keys)
+    println!("Sending ChangePrice command...");
+    send_admin_command(&client, &admin_keys, &keys, command)
         .await
         .unwrap();
 
-    println!("Sending ChangePrice command...");
-    client.send_event(&event).await.unwrap();
-
     // Wait for command processing
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     // Clean up
     shutdown_tx.send(true).await.unwrap();
-    machine.await.unwrap();
+    shutdown_admin(&client, admin_keys, keys).await;
     client.disconnect().await;
+
+    tokio::try_join!(machine, admin_handler).unwrap();
 }
 
 #[tokio::test]
 async fn test_remove_item_command_via_nostr() {
-    // Set up Nostr client
-    let keys = Keys::generate();
-    let admin_keys = Keys::generate();
-    let client = nostr_sdk::ClientBuilder::new()
-        .signer(admin_keys.clone())
-        .build();
-    let relay_url = "wss://relay.damus.io";
-    client.add_relay(relay_url).await.unwrap();
-    client.connect().await;
+    let (keys, admin_keys, client, mut vm, admin_handler, shutdown_tx) = setup().await;
 
-    // Set up channels
-    let (tx, rx) = mpsc::channel(10);
-    let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel::<bool>(1);
-
-    // Create admin handler
-    let admin_handler = setup_admin_handler(
-        keys.clone(),
-        &[admin_keys.public_key().to_string()],
-        tx.clone(),
-    )
-    .await
-    .unwrap();
-
-    // Create vending machine and add initial item
-    let mut vm = VendingMachine::new(rx, shutdown_rx);
-    vm.admin().unwrap();
     vm.add_item(Item::new(12, "Test Product".to_string(), 34, 4))
         .unwrap();
     assert!(vm.get_item(12).is_some());
@@ -258,28 +230,54 @@ async fn test_remove_item_command_via_nostr() {
 
     // Create RemoveItem command
     let command = AdminCommand::RemoveItem(12);
-    let command_json = serde_json::to_string(&command).unwrap();
-
-    // Send command via Nostr
-    let encrypted = nostr_sdk::nips::nip44::encrypt(
-        &admin_keys.secret_key(),
-        &keys.public_key(),
-        command_json,
-        nostr_sdk::nips::nip44::Version::V2,
-    )
-    .unwrap();
-
-    let event = EventBuilder::new(nostr_sdk::Kind::EncryptedDirectMessage, encrypted)
-        .build(admin_keys.public_key())
-        .sign(&admin_keys)
+    println!("Sending RemoveItem command...");
+    send_admin_command(&client, &admin_keys, &keys, command)
         .await
         .unwrap();
 
-    println!("Sending RemoveItem command...");
-    client.send_event(&event).await.unwrap();
+    // Wait for command processing
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // Clean up
+    shutdown_tx.send(true).await.unwrap();
+    machine.await.unwrap();
+    client.disconnect().await;
+}
+
+#[tokio::test]
+async fn test_cancel_via_nostr() {
+    let (keys, admin_keys, client, mut vm, admin_handler, shutdown_tx) = setup().await;
+    assert!(vm.is_under_admin());
+
+    vm.add_item(Item::new(12, "Test Product".to_string(), 34, 4))
+        .unwrap();
+    assert!(vm.get_item(12).is_some());
+
+    // Spawn machine task
+    let machine = tokio::spawn(async move {
+        if let Err(e) = vm.run_machine().await {
+            eprintln!("Vending machine error: {}", e);
+        }
+
+        assert!(!vm.is_under_admin());
+    });
+
+    // Spawn admin handler
+    let _ = tokio::spawn(async move {
+        if let Err(e) = admin_handler.handle_events().await {
+            eprintln!("Admin handler error: {}", e);
+        }
+    });
+
+    // Create RemoveItem command
+    let command = AdminCommand::End;
+    println!("Sending End command...");
+    send_admin_command(&client, &admin_keys, &keys, command)
+        .await
+        .unwrap();
 
     // Wait for command processing
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
 
     // Clean up
     shutdown_tx.send(true).await.unwrap();

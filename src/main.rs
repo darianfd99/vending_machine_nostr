@@ -11,9 +11,14 @@ async fn main() -> Result<(), VendingMachineError> {
     let (_, shutdown_rx) = tokio::sync::mpsc::channel::<bool>(1);
 
     // Create and configure admin handler
-    let admin_handler = setup_admin_handler(Keys::generate(), &["".to_string()], tx.clone())
-        .await
-        .map_err(VendingMachineError::AdminError)?;
+    let admin_handler = setup_admin_handler(
+        Keys::generate(),
+        &["".to_string()],
+        &["wss://relay.damus.io", "wss://relay.nostr.info"],
+        tx,
+    )
+    .await
+    .map_err(VendingMachineError::AdminError)?;
 
     // Create vending machine
     let mut vm = VendingMachine::new(rx, shutdown_rx);
