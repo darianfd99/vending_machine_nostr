@@ -18,7 +18,7 @@ function App() {
 
   // UI state
   const [activeTab, setActiveTab] = useState('items');
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState([]);  // This is already correct, just ensure it's an empty array
   const [selectedItem, setSelectedItem] = useState(null);
 
   // Form state - Add Item
@@ -30,7 +30,7 @@ function App() {
   // Form state - Change Price
   const [newPrice, setNewPrice] = useState('');
 
-  // Load saved authentication data
+  // Load saved authentication data and setup event listener
   useEffect(() => {
     const savedPrivateKey = localStorage.getItem('adminPrivateKey');
     const savedTargetPubKey = localStorage.getItem('targetPubKey');
@@ -40,14 +40,26 @@ function App() {
       setTargetPubKey(savedTargetPubKey);
       setIsAuthenticated(true);
       
-      // Initialize with mock data for now
-      setItems([
-        { id: 1, name: "Candy Bar", price: 150, count: 12 },
-        { id: 2, name: "Chips", price: 200, count: 8 },
-        { id: 3, name: "Soda", price: 250, count: 15 },
-      ]);
+      // Subscribe to vending machine updates
+      const unsubscribe = nostrService.subscribeToUpdates(savedTargetPubKey, (event) => {
+        try {
+          const eventData = JSON.parse(event.content);
+            // Ensure we always set an array, even if empty
+            setItems(Array.isArray(eventData.items) ? eventData.items : []);
+            setIsConnected(true);
+        } catch (error) {
+          console.error('Error processing update event:', error);
+          setItems([]); // Reset to empty array on error
+        }
+      });
+
+      // Request initial state
+      nostrService.sendCommand(savedPrivateKey, savedTargetPubKey, { type: "Status" });
       
-      setIsConnected(true);
+      // Cleanup subscription on unmount
+      return () => {
+        if (unsubscribe) unsubscribe();
+      };
     }
   }, []);
 
@@ -66,14 +78,22 @@ function App() {
         localStorage.setItem('targetPubKey', targetPubKey);
         showNotification("Logged in successfully", "success");
         
-        // Initialize with mock data for now
-        setItems([
-          { id: 1, name: "Candy Bar", price: 150, count: 12 },
-          { id: 2, name: "Chips", price: 200, count: 8 },
-          { id: 3, name: "Soda", price: 250, count: 15 },
-        ]);
+        // Subscribe to vending machine updates
+        console.log("Subscribing to updates for:", targetPubKey);
+        nostrService.subscribeToUpdates(targetPubKey, (event) => {
+          console.log("Received event:", event);
+          try {
+            const eventData = JSON.parse(event.content);
+              setItems(eventData.items || []);
+              setIsConnected(true);
+          } catch (error) {
+            console.error('Error processing update event:', error);
+          }
+        });
+
+        // Request initial state
+        nostrService.sendCommand(privateKey, targetPubKey, { type: "Status" });
         
-        setIsConnected(true);
       } catch (error) {
         showNotification(`Login failed: ${error.message}`, "error");
       }
@@ -177,11 +197,8 @@ function App() {
   };
 
   const handleAddItem = () => {
-    // Validate form
-    if (!newItemId || !newItemCount || (
-      !items.find(item => item.id === parseInt(newItemId)) && 
-      (!newItemName || !newItemPrice)
-    )) {
+    // Modified validation
+    if (!newItemId || !newItemCount || !newItemName || !newItemPrice) {
       showNotification("Please fill all required fields", "error");
       return;
     }
@@ -190,8 +207,8 @@ function App() {
       type: "AddItem",
       data: {
         id: parseInt(newItemId),
-        name: newItemName || items.find(item => item.id === parseInt(newItemId))?.name || "",
-        price: parseInt(newItemPrice) || items.find(item => item.id === parseInt(newItemId))?.price || 0,
+        name: newItemName,
+        price: parseInt(newItemPrice),
         count: parseInt(newItemCount)
       }
     };

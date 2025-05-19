@@ -163,13 +163,13 @@ impl VendingMachine {
     }
 
     pub async fn add_item(&mut self, item: Item) -> Result<(), VendingMachineError> {
-        self.update_last_activity().await?;
         if !self.under_admin {
             return Err(VendingMachineError::Unauthorized("only admin can add item"));
         }
 
         if let Some(state) = self.state.take() {
             self.state = Some(state.add_item(self, item)?);
+            self.update_last_activity().await?;
             return Ok(());
         }
 
@@ -177,9 +177,9 @@ impl VendingMachine {
     }
 
     pub async fn admin(&mut self) -> Result<(), VendingMachineError> {
-        self.update_last_activity().await?;
         if let Some(state) = self.state.take() {
             self.state = Some(state.admin(self)?);
+            self.update_last_activity().await?;
         }
         Ok(())
     }
@@ -189,55 +189,56 @@ impl VendingMachine {
         item_id: u64,
         new_price: u64,
     ) -> Result<(), VendingMachineError> {
-        self.update_last_activity().await?;
         if let Some(state) = self.state.take() {
             self.state = Some(state.change_price(self, item_id, new_price)?);
+            self.update_last_activity().await?;
         }
         Ok(())
     }
 
     pub async fn remove_item(&mut self, item_id: u64) -> Result<(), VendingMachineError> {
-        self.update_last_activity().await?;
         if let Some(state) = self.state.take() {
             self.state = Some(state.remove_item(self, item_id)?);
+            self.update_last_activity().await?;
         }
         Ok(())
     }
 
     pub async fn request_item(&mut self, item_id: u64) -> Result<(), VendingMachineError> {
-        self.update_last_activity().await?;
         if let Some(state) = self.state.take() {
             self.state = Some(state.request_item(self, item_id)?);
+            self.update_last_activity().await?;
             return Ok(());
         }
         Err(VendingMachineError::AddItem("invalid state"))
     }
 
     pub async fn insert_money(&mut self, money: u64) -> Result<(), VendingMachineError> {
-        self.update_last_activity().await?;
         if let Some(state) = self.state.take() {
             self.state = Some(state.insert_money(money)?);
+            self.update_last_activity().await?;
             return Ok(());
         }
         Err(VendingMachineError::AddItem("invalid state"))
     }
 
     pub async fn dispense_item(&mut self) -> Result<(), VendingMachineError> {
-        self.update_last_activity().await?;
         if let Some(state) = self.state.take() {
             self.state = Some(state.dispense_item(self)?);
+            self.update_last_activity().await?;
             return Ok(());
         }
         Err(VendingMachineError::AddItem("invalid state"))
     }
 
     pub async fn cancel(&mut self) -> Result<(), VendingMachineError> {
-        self.update_last_activity().await?;
         if let Some(state) = self.state.take() {
             self.state = Some(state.cancel(self)?);
+            self.update_last_activity().await?;
             return Ok(());
         }
-        Err(VendingMachineError::AddItem("invalid state"))
+        self.state = Some(Box::new(ListeningState));
+        Ok(())
     }
 
     pub fn show_commands(&self) {
@@ -383,7 +384,7 @@ impl VendingMachine {
                         if last_activity.elapsed().as_secs() > 60 {
                             println!("No activity for 60 seconds. Cancelling...");
                             self.cancel().await?;
-                            break;
+                            continue;
                         }
                     }
                 }

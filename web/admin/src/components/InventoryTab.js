@@ -4,7 +4,7 @@ import AddItemForm from './AddItemForm';
 import ChangePriceForm from './ChangePriceForm';
 
 const InventoryTab = ({ 
-  items,
+  items = [],
   newItemId,
   setNewItemId,
   newItemName,

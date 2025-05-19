@@ -10,11 +10,6 @@ const RELAYS = [
 // Initialize a single relay pool for sending messages
 const pool = new SimplePool();
 
-// Helper to convert hex string to Uint8Array
-function hexToBytes(hex) {
-  return new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-}
-
 const nostrService = {
   /**
    * Sends an administrative command to a vending machine over Nostr
@@ -145,7 +140,55 @@ const nostrService = {
         message: `Error requesting status: ${error?.message || "Unknown error"}` 
       };
     }
-  }
+  },
+
+  /**
+   * Subscribe to updates from a specific vending machine
+   * 
+   * @param {string} targetPubKey - Vending machine's public key (hex or npub format)
+   * @param {function} callback - Function to call when an update is received
+   * @returns {function} Unsubscribe function
+   */
+  subscribeToUpdates(targetPubKey, callback) {
+    // Convert from NIP-19 format if needed
+    let pubKey = targetPubKey;
+    if (targetPubKey.startsWith('npub')) {
+      try {
+        const decoded = nip19.decode(targetPubKey);
+        pubKey = decoded.data;
+      } catch (err) {
+        console.error("Error decoding npub:", err);
+        throw new Error(`Invalid npub format: ${err.message}`);
+      }
+    }
+    
+    console.log(`Subscribing to updates from ${pubKey}`);
+    // Create a subscription to listen for events from the target machine
+    const filter = {
+      kinds: [1], // Public note kind
+      authors: [pubKey],
+      // Remove time restriction to catch all updates
+    };
+
+    console.log('Setting up subscription with filter:', filter);
+    
+    const sub = pool.subscribeMany(RELAYS, [filter], {
+      onevent(event) {
+        try {
+          console.log('Received event:', event);
+          // Parse the content directly since it's not encrypted
+          callback(event);
+        } catch (error) {
+          console.error('Error processing event:', error);
+        }
+      }
+    });
+
+    return () => {
+      console.log('Closing subscription');
+      sub.close();
+    };
+  },
 };
 
 export default nostrService;
