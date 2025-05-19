@@ -10,7 +10,7 @@ async fn main() -> Result<(), VendingMachineError> {
     let (tx, rx) = tokio::sync::mpsc::channel::<AdminCommand>(10);
     let (_, shutdown_rx) = tokio::sync::mpsc::channel::<bool>(1);
 
-    let relays = &["ws://localhost:7777"]; 
+    let relays = &["ws://localhost:7777"];
 
     let admin_keys = Keys::generate();
     println!("Admin vm: {}", admin_keys.public_key());

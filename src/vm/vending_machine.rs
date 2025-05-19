@@ -65,7 +65,7 @@ impl Item {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct VendingMachineUpdate{
+pub struct VendingMachineUpdate {
     pub under_admin: bool,
     pub items: Vec<Item>,
     pub state: String,
@@ -88,16 +88,18 @@ impl VendingMachine {
         admin_commands: mpsc::Receiver<AdminCommand>,
         shutdown: mpsc::Receiver<bool>,
     ) -> Result<Self, VendingMachineError> {
-        let nostr_client = nostr_sdk::ClientBuilder::new().signer(nostr_keys.clone()).build();
+        let nostr_client = nostr_sdk::ClientBuilder::new()
+            .signer(nostr_keys.clone())
+            .build();
 
-    // Connect to relays
-    for &relay in admin_relays {
-        nostr_client
-            .add_relay(relay)
-            .await
-            .map_err(VendingMachineError::Nostr)?;
-    }
-    nostr_client.connect().await;
+        // Connect to relays
+        for &relay in admin_relays {
+            nostr_client
+                .add_relay(relay)
+                .await
+                .map_err(VendingMachineError::Nostr)?;
+        }
+        nostr_client.connect().await;
 
         Ok(Self {
             under_admin: false,
@@ -114,16 +116,20 @@ impl VendingMachine {
         self.under_admin
     }
 
-    pub async fn send_update(&self) -> Result<(), VendingMachineError>{
+    pub async fn send_update(&self) -> Result<(), VendingMachineError> {
         let state_name = match self.state.as_ref() {
-        Some(state) => {
-            // Get concrete type name using std::any::type_name
-            let type_name = std::any::type_name_of_val(&**state);
-            // Extract just the struct name from the fully qualified path
-            type_name.split("::").last().unwrap_or("Unknown").to_string()
-        }
-        None => "NoState".to_string(),
-    };
+            Some(state) => {
+                // Get concrete type name using std::any::type_name
+                let type_name = std::any::type_name_of_val(&**state);
+                // Extract just the struct name from the fully qualified path
+                type_name
+                    .split("::")
+                    .last()
+                    .unwrap_or("Unknown")
+                    .to_string()
+            }
+            None => "NoState".to_string(),
+        };
 
         let update = VendingMachineUpdate {
             under_admin: self.under_admin,
@@ -135,15 +141,23 @@ impl VendingMachine {
         let event_builder = nostr_sdk::EventBuilder::new(
             nostr_sdk::Kind::TextNote,
             serde_json::to_string(&update).unwrap(),
-        ).tag(nostr_sdk::Tag::all_relays())
+        )
+        .tag(nostr_sdk::Tag::all_relays())
         .tag(nostr_sdk::Tag::identifier("vending_machine_state"));
 
-        let event = self.nostr_client.sign_event_builder(event_builder).await.map_err(VendingMachineError::Nostr)?;
-        self.nostr_client.send_event(&event).await.map_err(VendingMachineError::Nostr)?;
+        let event = self
+            .nostr_client
+            .sign_event_builder(event_builder)
+            .await
+            .map_err(VendingMachineError::Nostr)?;
+        self.nostr_client
+            .send_event(&event)
+            .await
+            .map_err(VendingMachineError::Nostr)?;
         Ok(())
     }
 
-    pub async fn update_last_activity(&mut self) -> Result<(), VendingMachineError>{
+    pub async fn update_last_activity(&mut self) -> Result<(), VendingMachineError> {
         self.last_activity = Some(Instant::now());
         self.send_update().await
     }
@@ -163,7 +177,8 @@ impl VendingMachine {
     }
 
     pub async fn admin(&mut self) -> Result<(), VendingMachineError> {
-        self.update_last_activity().await?; if let Some(state) = self.state.take() {
+        self.update_last_activity().await?;
+        if let Some(state) = self.state.take() {
             self.state = Some(state.admin(self)?);
         }
         Ok(())
@@ -301,7 +316,8 @@ impl VendingMachine {
         // Process the admin command
         match command {
             AdminCommand::ChangePrice(change_price_req) => {
-                self.change_price(change_price_req.id, change_price_req.price).await?;
+                self.change_price(change_price_req.id, change_price_req.price)
+                    .await?;
                 Ok(true)
             }
             AdminCommand::RemoveItem(item_id) => {
@@ -332,7 +348,8 @@ impl VendingMachine {
                     name: item_data.name.clone(),
                     price: item_data.price,
                     count: item_data.count,
-                }).await?;
+                })
+                .await?;
                 Ok(true)
             }
             AdminCommand::Shutdown => {

@@ -61,7 +61,9 @@ async fn setup() -> (
     .unwrap();
 
     // Create vending machine
-    let mut vm = VendingMachine::new(keys.clone(),&[LOCAL_RELAY_URL], rx, shutdown_rx).await.unwrap();
+    let mut vm = VendingMachine::new(keys.clone(), &[LOCAL_RELAY_URL], rx, shutdown_rx)
+        .await
+        .unwrap();
     vm.admin().await.unwrap();
 
     (keys, admin_keys, client, vm, admin_handler, shutdown_tx)
@@ -163,7 +165,8 @@ async fn test_change_price_command_via_nostr() {
     let (keys, admin_keys, client, mut vm, admin_handler, shutdown_tx) = setup().await;
 
     vm.add_item(Item::new(22, "Test Product".to_string(), 100, 5))
-        .await.unwrap();
+        .await
+        .unwrap();
     assert!(vm.get_item(22).is_some());
     assert_eq!(vm.get_item(22).unwrap().price, 100);
 
@@ -208,7 +211,8 @@ async fn test_remove_item_command_via_nostr() {
     let (keys, admin_keys, client, mut vm, admin_handler, shutdown_tx) = setup().await;
 
     vm.add_item(Item::new(12, "Test Product".to_string(), 34, 4))
-        .await.unwrap();
+        .await
+        .unwrap();
     assert!(vm.get_item(12).is_some());
 
     // Spawn machine task
@@ -250,7 +254,8 @@ async fn test_cancel_via_nostr() {
     assert!(vm.is_under_admin());
 
     vm.add_item(Item::new(12, "Test Product".to_string(), 34, 4))
-        .await.unwrap();
+        .await
+        .unwrap();
     assert!(vm.get_item(12).is_some());
 
     // Spawn machine task
