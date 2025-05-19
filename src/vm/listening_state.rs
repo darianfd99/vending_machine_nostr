@@ -44,6 +44,7 @@ impl State for ListeningState {
         self: Box<Self>,
         vm: &mut VendingMachine,
     ) -> Result<Box<dyn State>, VendingMachineError> {
+        println!("admin state");
         vm.under_admin = true;
         Ok(Box::new(AdminState::new()))
     }

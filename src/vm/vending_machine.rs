@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt::Display};
 
+use serde::Serialize;
 use tokio::{sync::mpsc, time::Instant};
 
 use super::{helper, listening_state::ListeningState, state::State};
@@ -15,6 +16,7 @@ pub enum VendingMachineError {
     Unauthorized(&'static str),
     AdminError(AdminError),
     ItemDoesNotExist(u64),
+    Nostr(nostr_sdk::client::Error),
 }
 
 impl Display for VendingMachineError {
@@ -30,11 +32,12 @@ impl Display for VendingMachineError {
             Self::ItemDoesNotExist(s) => {
                 write!(f, "VendingMachineError::ItemDoesNotExist: {:?}", s)
             }
+            Self::Nostr(s) => write!(f, "VendingMachineError::Nostr: {:?}", s),
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Item {
     pub id: u64,
     pub name: String,
@@ -61,42 +64,92 @@ impl Item {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct VendingMachineUpdate{
+    pub under_admin: bool,
+    pub items: Vec<Item>,
+    pub state: String,
+}
+
 pub struct VendingMachine {
     pub(crate) under_admin: bool,
     state: Option<Box<dyn State>>,
     items: HashMap<u64, Item>,
     admin_commands: mpsc::Receiver<AdminCommand>,
+    nostr_client: nostr_sdk::Client,
     shutdown: mpsc::Receiver<bool>,
     last_activity: Option<Instant>,
 }
 
 impl VendingMachine {
-    pub fn new(
+    pub async fn new(
+        nostr_keys: nostr_sdk::Keys,
+        admin_relays: &[&str],
         admin_commands: mpsc::Receiver<AdminCommand>,
         shutdown: mpsc::Receiver<bool>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, VendingMachineError> {
+        let nostr_client = nostr_sdk::ClientBuilder::new().signer(nostr_keys.clone()).build();
+
+    // Connect to relays
+    for &relay in admin_relays {
+        nostr_client
+            .add_relay(relay)
+            .await
+            .map_err(VendingMachineError::Nostr)?;
+    }
+    nostr_client.connect().await;
+
+        Ok(Self {
             under_admin: false,
             state: Some(Box::new(ListeningState)),
             items: HashMap::new(),
             admin_commands,
             last_activity: None,
             shutdown,
-        }
+            nostr_client,
+        })
     }
 
     pub fn is_under_admin(&self) -> bool {
         self.under_admin
     }
 
-    fn update_last_activity(&mut self) {
-        if self.under_admin {
-            self.last_activity = Some(Instant::now());
+    pub async fn send_update(&self) -> Result<(), VendingMachineError>{
+        let state_name = match self.state.as_ref() {
+        Some(state) => {
+            // Get concrete type name using std::any::type_name
+            let type_name = std::any::type_name_of_val(&**state);
+            // Extract just the struct name from the fully qualified path
+            type_name.split("::").last().unwrap_or("Unknown").to_string()
         }
+        None => "NoState".to_string(),
+    };
+
+        let update = VendingMachineUpdate {
+            under_admin: self.under_admin,
+            items: self.items.values().cloned().collect(),
+            state: state_name,
+        };
+
+        // Send the update to the Nostr client
+        let event_builder = nostr_sdk::EventBuilder::new(
+            nostr_sdk::Kind::TextNote,
+            serde_json::to_string(&update).unwrap(),
+        ).tag(nostr_sdk::Tag::all_relays())
+        .tag(nostr_sdk::Tag::identifier("vending_machine_state"));
+
+        let event = self.nostr_client.sign_event_builder(event_builder).await.map_err(VendingMachineError::Nostr)?;
+        self.nostr_client.send_event(&event).await.map_err(VendingMachineError::Nostr)?;
+        Ok(())
     }
 
-    pub fn add_item(&mut self, item: Item) -> Result<(), VendingMachineError> {
-        self.update_last_activity();
+    pub async fn update_last_activity(&mut self) -> Result<(), VendingMachineError>{
+        self.last_activity = Some(Instant::now());
+        self.send_update().await
+    }
+
+    pub async fn add_item(&mut self, item: Item) -> Result<(), VendingMachineError> {
+        self.update_last_activity().await?;
         if !self.under_admin {
             return Err(VendingMachineError::Unauthorized("only admin can add item"));
         }
@@ -109,36 +162,35 @@ impl VendingMachine {
         Err(VendingMachineError::AddItem("invalid state"))
     }
 
-    pub fn admin(&mut self) -> Result<(), VendingMachineError> {
-        self.update_last_activity();
-        if let Some(state) = self.state.take() {
+    pub async fn admin(&mut self) -> Result<(), VendingMachineError> {
+        self.update_last_activity().await?; if let Some(state) = self.state.take() {
             self.state = Some(state.admin(self)?);
         }
         Ok(())
     }
 
-    pub fn change_price(
+    pub async fn change_price(
         &mut self,
         item_id: u64,
         new_price: u64,
     ) -> Result<(), VendingMachineError> {
-        self.update_last_activity();
+        self.update_last_activity().await?;
         if let Some(state) = self.state.take() {
             self.state = Some(state.change_price(self, item_id, new_price)?);
         }
         Ok(())
     }
 
-    pub fn remove_item(&mut self, item_id: u64) -> Result<(), VendingMachineError> {
-        self.update_last_activity();
+    pub async fn remove_item(&mut self, item_id: u64) -> Result<(), VendingMachineError> {
+        self.update_last_activity().await?;
         if let Some(state) = self.state.take() {
             self.state = Some(state.remove_item(self, item_id)?);
         }
         Ok(())
     }
 
-    pub fn request_item(&mut self, item_id: u64) -> Result<(), VendingMachineError> {
-        self.update_last_activity();
+    pub async fn request_item(&mut self, item_id: u64) -> Result<(), VendingMachineError> {
+        self.update_last_activity().await?;
         if let Some(state) = self.state.take() {
             self.state = Some(state.request_item(self, item_id)?);
             return Ok(());
@@ -146,8 +198,8 @@ impl VendingMachine {
         Err(VendingMachineError::AddItem("invalid state"))
     }
 
-    pub fn insert_money(&mut self, money: u64) -> Result<(), VendingMachineError> {
-        self.update_last_activity();
+    pub async fn insert_money(&mut self, money: u64) -> Result<(), VendingMachineError> {
+        self.update_last_activity().await?;
         if let Some(state) = self.state.take() {
             self.state = Some(state.insert_money(money)?);
             return Ok(());
@@ -155,8 +207,8 @@ impl VendingMachine {
         Err(VendingMachineError::AddItem("invalid state"))
     }
 
-    pub fn dispense_item(&mut self) -> Result<(), VendingMachineError> {
-        self.update_last_activity();
+    pub async fn dispense_item(&mut self) -> Result<(), VendingMachineError> {
+        self.update_last_activity().await?;
         if let Some(state) = self.state.take() {
             self.state = Some(state.dispense_item(self)?);
             return Ok(());
@@ -164,8 +216,8 @@ impl VendingMachine {
         Err(VendingMachineError::AddItem("invalid state"))
     }
 
-    pub fn cancel(&mut self) -> Result<(), VendingMachineError> {
-        self.update_last_activity();
+    pub async fn cancel(&mut self) -> Result<(), VendingMachineError> {
+        self.update_last_activity().await?;
         if let Some(state) = self.state.take() {
             self.state = Some(state.cancel(self)?);
             return Ok(());
@@ -249,15 +301,15 @@ impl VendingMachine {
         // Process the admin command
         match command {
             AdminCommand::ChangePrice(change_price_req) => {
-                self.change_price(change_price_req.id, change_price_req.price)?;
+                self.change_price(change_price_req.id, change_price_req.price).await?;
                 Ok(true)
             }
             AdminCommand::RemoveItem(item_id) => {
-                self.remove_item(item_id.to_owned())?;
+                self.remove_item(item_id.to_owned()).await?;
                 Ok(true)
             }
             AdminCommand::RequestAdminState => {
-                self.admin()?;
+                self.admin().await?;
                 Ok(true)
             }
             AdminCommand::Reboot => {
@@ -280,7 +332,7 @@ impl VendingMachine {
                     name: item_data.name.clone(),
                     price: item_data.price,
                     count: item_data.count,
-                })?;
+                }).await?;
                 Ok(true)
             }
             AdminCommand::Shutdown => {
@@ -289,7 +341,7 @@ impl VendingMachine {
             }
             AdminCommand::End => {
                 println!("Admin finished working");
-                self.cancel()?;
+                self.cancel().await?;
                 Ok(true)
             }
         }
@@ -313,7 +365,7 @@ impl VendingMachine {
                     if let Some(last_activity) = self.last_activity {
                         if last_activity.elapsed().as_secs() > 60 {
                             println!("No activity for 60 seconds. Cancelling...");
-                            self.cancel()?;
+                            self.cancel().await?;
                             break;
                         }
                     }
@@ -346,25 +398,25 @@ impl VendingMachine {
                 }
                 let count =
                     helper::read_number("write the quantity adding to the stock of that item: ");
-                self.add_item(Item::new(id, name, price, count))?;
+                self.add_item(Item::new(id, name, price, count)).await?;
                 self.show_items();
             }
             2 => {
                 self.show_items();
                 let id =
                     helper::read_number("requesting item. Provide the id of the item (number): ");
-                self.request_item(id)?;
+                self.request_item(id).await?;
             }
             3 => {
                 let money = helper::read_number("insert money. Provide the amount (number): ");
-                self.insert_money(money)?;
+                self.insert_money(money).await?;
             }
             4 => {
-                self.dispense_item()?;
+                self.dispense_item().await?;
                 self.show_items();
             }
             5 => {
-                self.cancel()?;
+                self.cancel().await?;
             }
             _ => {
                 println!("invalid code. Try again")

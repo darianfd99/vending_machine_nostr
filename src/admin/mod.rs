@@ -126,7 +126,6 @@ pub async fn setup_admin_handler(
     sender: tokio::sync::mpsc::Sender<AdminCommand>,
 ) -> Result<AdminHandler, AdminError> {
     // Create client
-    // Generate new random keys
     let nostr_client = nostr_sdk::ClientBuilder::new().signer(keys.clone()).build();
 
     // Connect to relays

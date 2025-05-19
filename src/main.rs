@@ -10,18 +10,22 @@ async fn main() -> Result<(), VendingMachineError> {
     let (tx, rx) = tokio::sync::mpsc::channel::<AdminCommand>(10);
     let (_, shutdown_rx) = tokio::sync::mpsc::channel::<bool>(1);
 
+    let relays = &["ws://localhost:7777"]; 
+
+    let admin_keys = Keys::generate();
+    println!("Admin vm: {}", admin_keys.public_key());
     // Create and configure admin handler
     let admin_handler = setup_admin_handler(
-        Keys::generate(),
-        &["".to_string()],
-        &["wss://relay.damus.io", "wss://relay.nostr.info"],
+        admin_keys.clone(),
+        &["npub1agsuqc2g2slv3fnlf8xancqvzyywrwdf7sq4llhzuv48nz3evtcq555fmx".to_string()],
+        relays,
         tx,
     )
     .await
     .map_err(VendingMachineError::AdminError)?;
 
     // Create vending machine
-    let mut vm = VendingMachine::new(rx, shutdown_rx);
+    let mut vm = VendingMachine::new(admin_keys, relays, rx, shutdown_rx).await?;
 
     // Spawn admin listener task
     let admin_task = tokio::spawn(async move {
