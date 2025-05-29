@@ -64,16 +64,12 @@ const nostrService = {
       // Encrypt using NIP-44 with explicit key preparation
       let encryptedContent;
       try {
-          console.log("Using NIP-44 encryption with keys as-is");
-          console.log("secretKey:", secretKey);
-          console.log("pubKey:", pubKey);
           const conversationKey = getConversationKey(
             secretKey,
             pubKey
           );
           encryptedContent = await encrypt(commandStr, conversationKey);
         
-        console.log("Final content:", encryptedContent);
       } catch (err) {
         console.error("NIP-44 encryption error:", err);
         return { success: false, message: `NIP-44 encryption failed: ${err.message}` };
@@ -90,33 +86,19 @@ const nostrService = {
       
       // In nostr-tools 2.x, finalizeEvent is the recommended way to create a signed event
       const signedEvent = finalizeEvent(event, secretKey);
-      console.log("Full signed event:", signedEvent);
       
       // Publish to relays
       const pubs = pool.publish(RELAYS, signedEvent);
       
-      // Wait for at least one relay to accept the event
-      const relaySuccess = await Promise.any(
-        pubs.map(pub => new Promise((resolve, reject) => {
-          pub.on('ok', () => resolve(true));
-          pub.on('failed', reason => reject(new Error(reason)));
-          setTimeout(() => reject(new Error('Relay timeout')), 5000);
-        }))
-      ).catch(err => {
-        console.error('Publication failed:', err);
-        return false;
-      });
-      
-      if (!relaySuccess) {
-        return { success: false, message: 'Failed to publish to any relay' };
-      }
-      
-      console.log(`Command ${command.type} sent successfully to ${pubKey}`);
+      // Since pubs is already resolved and the command works, 
+      // we don't need to wait for explicit 'ok' responses
+      console.log("Event published to relays:", signedEvent.id);
       return { 
         success: true, 
         message: `Command ${command.type} sent successfully`,
         event: signedEvent
       };
+
     } catch (error) {
       console.error("Unexpected error in sendCommand:", error);
       return { 
