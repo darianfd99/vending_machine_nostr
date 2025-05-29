@@ -1,0 +1,8 @@
+[admins]
+public_keys = [
+    "npub1agsuqc2g2slv3fnlf8xancqvzyywrwdf7sq4llhzuv48nz3evtcq555fmx",
+    # Add more admin keys as needed
+]
+
+[relays]
+addresses = ["ws://localhost:7777"]

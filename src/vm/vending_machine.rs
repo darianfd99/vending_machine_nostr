@@ -17,6 +17,7 @@ pub enum VendingMachineError {
     AdminError(AdminError),
     ItemDoesNotExist(u64),
     Nostr(nostr_sdk::client::Error),
+    Config(String),
 }
 
 impl Display for VendingMachineError {
@@ -33,6 +34,7 @@ impl Display for VendingMachineError {
                 write!(f, "VendingMachineError::ItemDoesNotExist: {:?}", s)
             }
             Self::Nostr(s) => write!(f, "VendingMachineError::Nostr: {:?}", s),
+            Self::Config(msg) => write!(f, "Configuration error: {}", msg),
         }
     }
 }
